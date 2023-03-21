@@ -1,24 +1,28 @@
-use std::{time::Duration, net::TcpStream, io::{Write, BufRead, BufReader}};
+use std::{
+    io::{BufRead, BufReader, Write},
+    net::TcpStream,
+    time::Duration,
+};
 
 use clap::Parser;
 use dns_lookup::{AddrInfoHints, AddrInfoIter};
 
-const ABUSEHOST:&'static str= "whois.abuse.net";
-const ANICHOST:&'static str= "whois.arin.net";
-const DENICHOST:&'static str= "whois.denic.de";
-const DKNICHOST:&'static str= "whois.dk-hostmaster.dk";
-const FNICHOST:&'static str= "whois.afrinic.net";
-const GNICHOST:&'static str= "whois.nic.gov";
-const IANAHOST:&'static str= "whois.iana.org";
-const INICHOST:&'static str= "whois.internic.net";
-const KNICHOST:&'static str= "whois.krnic.net";
-const LNICHOST:&'static str= "whois.lacnic.net";
-const MNICHOST:&'static str= "whois.ra.net";
-const PDBHOST:&'static str=  "whois.peeringdb.com";
-const PNICHOST:&'static str= "whois.apnic.net";
-const QNICHOST_TAIL:&'static str= ".whois-servers.net";
-const RNICHOST:&'static str= "whois.ripe.net";
-const VNICHOST:&'static str= "whois.verisign-grs.com";
+const ABUSEHOST: &'static str = "whois.abuse.net";
+const ANICHOST: &'static str = "whois.arin.net";
+const DENICHOST: &'static str = "whois.denic.de";
+const DKNICHOST: &'static str = "whois.dk-hostmaster.dk";
+const FNICHOST: &'static str = "whois.afrinic.net";
+const GNICHOST: &'static str = "whois.nic.gov";
+const IANAHOST: &'static str = "whois.iana.org";
+const INICHOST: &'static str = "whois.internic.net";
+const KNICHOST: &'static str = "whois.krnic.net";
+const LNICHOST: &'static str = "whois.lacnic.net";
+const MNICHOST: &'static str = "whois.ra.net";
+const PDBHOST: &'static str = "whois.peeringdb.com";
+const PNICHOST: &'static str = "whois.apnic.net";
+const QNICHOST_TAIL: &'static str = ".whois-servers.net";
+const RNICHOST: &'static str = "whois.ripe.net";
+const VNICHOST: &'static str = "whois.verisign-grs.com";
 
 /// Internet domain name and network number directory service
 #[derive(Parser, Debug)]
@@ -47,6 +51,9 @@ struct Args {
     #[arg(short = 'g')]
     use_gnichost: bool,
 
+    // TODO: should be lowercase 'h', but also get '--help' to still work
+    // i.e. "disable_help_flag" makes it possible to use 'h' but breaks
+    // the help / usage flag.
     #[arg(short = 'H')]
     host: Option<String>,
 
@@ -83,7 +90,7 @@ struct Args {
     #[arg(short = 'S')]
     spam_me: bool,
 
-    names: Vec::<String>,
+    names: Vec<String>,
 }
 
 fn resolve_static_host(args: &Args) -> Option<&'static str> {
@@ -129,28 +136,26 @@ fn resolve_static_host(args: &Args) -> Option<&'static str> {
 const CONNECT_TIMEOUT: Duration = Duration::new(180, 0);
 const WRITE_TIMEOUT: Duration = Duration::new(180, 0);
 const PROTOCOL_TCP: i32 = 6;
-const PROTOCOL_UDP: i32 = 17;
+const _PROTOCOL_UDP: i32 = 17;
 const IPV4_ADDR: i32 = 2;
-const IPV6_ADDR: i32 = 30;
+const _IPV6_ADDR: i32 = 30;
 const SOCKTYPE_TCP: i32 = 1;
-const SOCKTYPE_UDP: i32 = 2;
+const _SOCKTYPE_UDP: i32 = 2;
 
 fn connect_first(ai_iter: AddrInfoIter) -> Option<TcpStream> {
     for ai in ai_iter {
         match ai {
             Ok(ai) => {
-                if ai.address != IPV4_ADDR || ai.protocol != PROTOCOL_TCP {
-                    println!("skipping = {:?}", ai);
-                } else {
+                if ai.address == IPV4_ADDR && ai.protocol == PROTOCOL_TCP {
                     match TcpStream::connect_timeout(&ai.sockaddr, CONNECT_TIMEOUT) {
                         Ok(v) => {
                             println!("connected to: {:?} {:?}", v, ai);
                             return Some(v);
-                        },
+                        }
                         Err(err) => panic!("{}", err),
                     }
                 }
-            },
+            }
             Err(err) => panic!("{}", err),
         }
     }
@@ -158,19 +163,19 @@ fn connect_first(ai_iter: AddrInfoIter) -> Option<TcpStream> {
 }
 
 fn build_query(hostname: &str, query: &str, spam_me: bool) -> String {
-    if !spam_me && (
-        hostname == DENICHOST
-        || hostname == String::from("de".to_owned().clone() + QNICHOST_TAIL).as_str()) {
-
+    if !spam_me
+        && (hostname == DENICHOST
+            || hostname == String::from("de".to_owned().clone() + QNICHOST_TAIL).as_str())
+    {
         if query.contains(|c: char| !c.is_ascii()) {
             return format!("-T dn,ace {}\r\n", query);
         } else {
             return format!("-T dn {}\r\n", query);
         }
-    } else if !spam_me && (
-        hostname == DKNICHOST
-        || hostname == String::from("dk".to_owned().clone() + QNICHOST_TAIL).as_str()) {
-
+    } else if !spam_me
+        && (hostname == DKNICHOST
+            || hostname == String::from("dk".to_owned().clone() + QNICHOST_TAIL).as_str())
+    {
         return format!("--show-handles {}\r\n", query);
     } else if spam_me || query.contains(|c: char| c == ' ') {
         return format!("{}\r\n", query);
@@ -200,19 +205,19 @@ fn whois(query: &str, host: &str, service: &str, recurse: bool, quick: bool, spa
     };
     let mut connection = match connect_first(ai_iter) {
         Some(v) => v,
-        None  => panic!("could not connect"),
+        None => panic!("could not connect"),
     };
     let query = build_query(query, host, spam_me);
     match connection.write(query.as_bytes()) {
         Ok(_) => {
             println!("wrote query: {query}");
-        },
+        }
         Err(err) => panic!("err = {err}"),
     }
     match connection.flush() {
         Ok(_) => {
             println!("flushed");
-        },
+        }
         Err(err) => panic!("err = {err}"),
     }
     let mut buf_reader = BufReader::new(&mut connection);
@@ -222,7 +227,10 @@ fn whois(query: &str, host: &str, service: &str, recurse: bool, quick: bool, spa
         Err(err) => panic!("{err}"),
     };
     println!("line_in={line_in} line={line} hex={}", hex::encode(&line));
-    println!("query: >{}< recurse={} quick={} spam_me={}", query, recurse, quick, spam_me);
+    println!(
+        "query: >{}< recurse={} quick={} spam_me={}",
+        query, recurse, quick, spam_me
+    );
 }
 
 fn main() {
@@ -237,15 +245,27 @@ fn main() {
         None => {
             if args.country.is_none() {
                 let env_whois_server = match std::env::var("WHOIS_SERVER") {
-                    Ok(v) => if v.len() > 0 { Some(v) } else { None },
+                    Ok(v) => {
+                        if v.len() > 0 {
+                            Some(v)
+                        } else {
+                            None
+                        }
+                    }
                     Err(_) => None,
                 };
                 match env_whois_server {
                     Some(v) => Some(v),
                     None => match std::env::var("RA_SERVER") {
-                        Ok(v) => if v.len() > 0 { Some(v) } else { None },
+                        Ok(v) => {
+                            if v.len() > 0 {
+                                Some(v)
+                            } else {
+                                None
+                            }
+                        }
                         Err(_) => None,
-                    }
+                    },
                 }
             } else {
                 None
@@ -263,10 +283,17 @@ fn main() {
             for name in args.names {
                 println!(">> looking up: {}", name);
                 if args.country.is_none() {
-                    whois(name.as_str(), host.as_str(), port.as_str(), recurse, args.quick, args.spam_me);
+                    whois(
+                        name.as_str(),
+                        host.as_str(),
+                        port.as_str(),
+                        recurse,
+                        args.quick,
+                        args.spam_me,
+                    );
                 }
             }
-        },
+        }
         None => panic!("no host"),
     }
 }
