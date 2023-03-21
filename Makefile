@@ -1,10 +1,10 @@
 .PHONY: check \
 	build \
 	clean \
-	clippy \
 	docs \
-	migrate \
 	fmt \
+	lint \
+	migrate \
 	redo \
 	release \
 	run \
@@ -22,14 +22,14 @@ check:
 clean:
 	cargo clean
 
-clippy:
-	cargo clippy
-
 docs:
 	cargo doc --open
 
 fmt:
 	cargo fmt
+
+lint:
+	cargo clippy
 
 # 'diesel migration generate' to create a new one
 migrate:

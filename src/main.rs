@@ -7,22 +7,22 @@ use std::{
 use clap::Parser;
 use dns_lookup::{AddrInfoHints, AddrInfoIter};
 
-const ABUSEHOST: &'static str = "whois.abuse.net";
-const ANICHOST: &'static str = "whois.arin.net";
-const DENICHOST: &'static str = "whois.denic.de";
-const DKNICHOST: &'static str = "whois.dk-hostmaster.dk";
-const FNICHOST: &'static str = "whois.afrinic.net";
-const GNICHOST: &'static str = "whois.nic.gov";
-const IANAHOST: &'static str = "whois.iana.org";
-const INICHOST: &'static str = "whois.internic.net";
-const KNICHOST: &'static str = "whois.krnic.net";
-const LNICHOST: &'static str = "whois.lacnic.net";
-const MNICHOST: &'static str = "whois.ra.net";
-const PDBHOST: &'static str = "whois.peeringdb.com";
-const PNICHOST: &'static str = "whois.apnic.net";
-const QNICHOST_TAIL: &'static str = ".whois-servers.net";
-const RNICHOST: &'static str = "whois.ripe.net";
-const VNICHOST: &'static str = "whois.verisign-grs.com";
+const ABUSEHOST: &str = "whois.abuse.net";
+const ANICHOST: &str = "whois.arin.net";
+const DENICHOST: &str = "whois.denic.de";
+const DKNICHOST: &str = "whois.dk-hostmaster.dk";
+const FNICHOST: &str = "whois.afrinic.net";
+const GNICHOST: &str = "whois.nic.gov";
+const IANAHOST: &str = "whois.iana.org";
+const INICHOST: &str = "whois.internic.net";
+const KNICHOST: &str = "whois.krnic.net";
+const LNICHOST: &str = "whois.lacnic.net";
+const MNICHOST: &str = "whois.ra.net";
+const PDBHOST: &str = "whois.peeringdb.com";
+const PNICHOST: &str = "whois.apnic.net";
+const QNICHOST_TAIL: &str = ".whois-servers.net";
+const RNICHOST: &str = "whois.ripe.net";
+const VNICHOST: &str = "whois.verisign-grs.com";
 
 /// Internet domain name and network number directory service
 #[derive(Parser, Debug)]
@@ -149,14 +149,14 @@ fn connect_first(ai_iter: AddrInfoIter) -> Option<TcpStream> {
                 if ai.address == IPV4_ADDR && ai.protocol == PROTOCOL_TCP {
                     match TcpStream::connect_timeout(&ai.sockaddr, CONNECT_TIMEOUT) {
                         Ok(v) => {
-                            println!("connected to: {:?} {:?}", v, ai);
+                            println!("connected to: {v:?} {ai:?}");
                             return Some(v);
                         }
-                        Err(err) => panic!("{}", err),
+                        Err(err) => panic!("{err}"),
                     }
                 }
             }
-            Err(err) => panic!("{}", err),
+            Err(err) => panic!("{err}"),
         }
     }
     None
@@ -227,10 +227,7 @@ fn whois(query: &str, host: &str, service: &str, recurse: bool, quick: bool, spa
         Err(err) => panic!("{err}"),
     };
     println!("line_in={line_in} line={line} hex={}", hex::encode(&line));
-    println!(
-        "query: >{}< recurse={} quick={} spam_me={}",
-        query, recurse, quick, spam_me
-    );
+    println!("query: >{query}< recurse={recurse} quick={quick} spam_me={spam_me}");
 }
 
 fn main() {
@@ -245,25 +242,13 @@ fn main() {
         None => {
             if args.country.is_none() {
                 let env_whois_server = match std::env::var("WHOIS_SERVER") {
-                    Ok(v) => {
-                        if v.len() > 0 {
-                            Some(v)
-                        } else {
-                            None
-                        }
-                    }
+                    Ok(v) => if v.is_empty() { None } else { Some(v) },
                     Err(_) => None,
                 };
                 match env_whois_server {
                     Some(v) => Some(v),
                     None => match std::env::var("RA_SERVER") {
-                        Ok(v) => {
-                            if v.len() > 0 {
-                                Some(v)
-                            } else {
-                                None
-                            }
-                        }
+                        Ok(v) => if v.is_empty() { None } else { Some(v) },
                         Err(_) => None,
                     },
                 }
@@ -281,7 +266,6 @@ fn main() {
     match host {
         Some(host) => {
             for name in args.names {
-                println!(">> looking up: {}", name);
                 if args.country.is_none() {
                     whois(
                         name.as_str(),
