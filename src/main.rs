@@ -4,6 +4,7 @@ use std::{
     time::Duration,
 };
 
+use anyhow::{anyhow, Result};
 use clap::Parser;
 use dns_lookup::{AddrInfoHints, AddrInfoIter};
 
@@ -142,24 +143,20 @@ const _IPV6_ADDR: i32 = 30;
 const SOCKTYPE_TCP: i32 = 1;
 const _SOCKTYPE_UDP: i32 = 2;
 
-fn connect_first(ai_iter: AddrInfoIter) -> Option<TcpStream> {
+fn connect_first(ai_iter: AddrInfoIter) -> Result<TcpStream> {
     for ai in ai_iter {
         match ai {
             Ok(ai) => {
                 if ai.address == IPV4_ADDR && ai.protocol == PROTOCOL_TCP {
-                    match TcpStream::connect_timeout(&ai.sockaddr, CONNECT_TIMEOUT) {
-                        Ok(v) => {
-                            println!("connected to: {v:?} {ai:?}");
-                            return Some(v);
-                        }
-                        Err(err) => panic!("{err}"),
-                    }
+                    let result = TcpStream::connect_timeout(&ai.sockaddr, CONNECT_TIMEOUT)?;
+                    return Ok(result);
                 }
             }
-            Err(err) => panic!("{err}"),
+            // Skip errors in resolution
+            Err(_) => (),
         }
     }
-    None
+    Err(anyhow!("could not resolve address"))
 }
 
 fn build_query(hostname: &str, query: &str, spam_me: bool) -> String {
@@ -168,31 +165,31 @@ fn build_query(hostname: &str, query: &str, spam_me: bool) -> String {
             || hostname == String::from("de".to_owned().clone() + QNICHOST_TAIL).as_str())
     {
         if query.contains(|c: char| !c.is_ascii()) {
-            return format!("-T dn,ace {}\r\n", query);
+            return format!("-T dn,ace {query}\r\n");
         } else {
-            return format!("-T dn {}\r\n", query);
+            return format!("-T dn {query}\r\n");
         }
     } else if !spam_me
         && (hostname == DKNICHOST
             || hostname == String::from("dk".to_owned().clone() + QNICHOST_TAIL).as_str())
     {
-        return format!("--show-handles {}\r\n", query);
+        return format!("--show-handles {query}\r\n");
     } else if spam_me || query.contains(|c: char| c == ' ') {
-        return format!("{}\r\n", query);
+        return format!("{query}\r\n");
     } else if hostname == ANICHOST {
         if query.starts_with("AS") && query[2..].contains(|c: char| c.is_ascii_digit()) {
             return format!("+ a {}\r\n", &query[2..]);
         } else {
-            return format!("+ {}\r\n", query);
+            return format!("+ {query}\r\n");
         }
     } else if hostname == VNICHOST {
-        return format!("domain {}\r\n", query);
+        return format!("domain {query}\r\n");
     }
-    format!("{}\r\n", query)
+    format!("{query}\r\n")
 }
 
 // TODO: put flags into a struct
-fn whois(query: &str, host: &str, service: &str, recurse: bool, quick: bool, spam_me: bool) {
+fn whois(query: &str, host: &str, service: &str, recurse: bool, quick: bool, spam_me: bool) -> Result<()> {
     let ai_canonname = 0x02;
     let hints = AddrInfoHints {
         socktype: SOCKTYPE_TCP,
@@ -203,31 +200,24 @@ fn whois(query: &str, host: &str, service: &str, recurse: bool, quick: bool, spa
         Ok(v) => v,
         Err(err) => panic!(">> {:?}", err),
     };
-    let mut connection = match connect_first(ai_iter) {
-        Some(v) => v,
-        None => panic!("could not connect"),
-    };
+    let mut connection = connect_first(ai_iter)?;
     let query = build_query(query, host, spam_me);
-    match connection.write(query.as_bytes()) {
-        Ok(_) => {
-            println!("wrote query: {query}");
-        }
-        Err(err) => panic!("err = {err}"),
-    }
-    match connection.flush() {
-        Ok(_) => {
-            println!("flushed");
-        }
-        Err(err) => panic!("err = {err}"),
-    }
+    connection.set_write_timeout(Some(WRITE_TIMEOUT))?;
+    connection.write(query.as_bytes())?;
+    connection.flush()?;
     let mut buf_reader = BufReader::new(&mut connection);
     let mut line = String::new();
-    let line_in = match buf_reader.read_line(&mut line) {
-        Ok(v) => v,
-        Err(err) => panic!("{err}"),
-    };
-    println!("line_in={line_in} line={line} hex={}", hex::encode(&line));
-    println!("query: >{query}< recurse={recurse} quick={quick} spam_me={spam_me}");
+    loop {
+        let line_in = buf_reader.read_line(&mut line)?;
+        println!("line_in={line_in} line={line} hex={}", hex::encode(&line));
+        if line_in == 0 {
+            break;
+        }
+        // TODO: read more lines
+        println!("line_in={line_in} line={line} hex={}", hex::encode(&line));
+        println!("query: >{query}< recurse={recurse} quick={quick} spam_me={spam_me}");
+    }
+    Ok(())
 }
 
 fn main() {
@@ -267,14 +257,17 @@ fn main() {
         Some(host) => {
             for name in args.names {
                 if args.country.is_none() {
-                    whois(
+                    match whois(
                         name.as_str(),
                         host.as_str(),
                         port.as_str(),
                         recurse,
                         args.quick,
                         args.spam_me,
-                    );
+                    ) {
+                            Ok(_) => println!("ok"),
+                            Err(err) => println!("ERROR: {err}"),
+                        }
                 }
             }
         }
