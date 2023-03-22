@@ -189,35 +189,85 @@ fn build_query(hostname: &str, query: &str, spam_me: bool) -> String {
 }
 
 // TODO: put flags into a struct
-fn whois(query: &str, host: &str, service: &str, recurse: bool, quick: bool, spam_me: bool) -> Result<()> {
+fn whois(query: &str, hostname: &str, service: &str, flags: &WhoisFlags) -> Result<()> {
     let ai_canonname = 0x02;
     let hints = AddrInfoHints {
         socktype: SOCKTYPE_TCP,
         flags: ai_canonname,
         ..Default::default()
     };
-    let ai_iter = match dns_lookup::getaddrinfo(Some(host), Some(service), Some(hints)) {
+    let ai_iter = match dns_lookup::getaddrinfo(Some(hostname), Some(service), Some(hints)) {
         Ok(v) => v,
         Err(err) => panic!(">> {:?}", err),
     };
     let mut connection = connect_first(ai_iter)?;
-    let query = build_query(query, host, spam_me);
+    let query = build_query(query, hostname, flags.spam_me);
     connection.set_write_timeout(Some(WRITE_TIMEOUT))?;
     connection.write(query.as_bytes())?;
     connection.flush()?;
-    let mut buf_reader = BufReader::new(&mut connection);
-    let mut line = String::new();
-    loop {
-        let line_in = buf_reader.read_line(&mut line)?;
-        println!("line_in={line_in} line={line} hex={}", hex::encode(&line));
-        if line_in == 0 {
+    let buf_reader = BufReader::new(&connection);
+    let mut comment = 0;
+    if !flags.spam_me && (hostname == ANICHOST || hostname == RNICHOST) {
+        comment = 2;
+    }
+    for line in buf_reader.lines() {
+        let line = match line {
+            Ok(v) => v,
+            Err(_) => break,
+        };
+        if !flags.spam_me && line == "-- \r" {
             break;
         }
-        // TODO: read more lines
-        println!("line_in={line_in} line={line} hex={}", hex::encode(&line));
-        println!("query: >{query}< recurse={recurse} quick={quick} spam_me={spam_me}");
+        if comment == 1 && line.starts_with("#") {
+            break;
+        } else if comment == 2 {
+            if line.is_empty() || line.starts_with(|c: char| c == '#' || c == '%' || c == '\r') {
+                continue
+            } else {
+                comment = 1;
+            }
+        }
+        println!("{line}");
     }
     Ok(())
+}
+
+fn resolve_env_var(keys: &[&str]) -> Option<String> {
+    for key in keys {
+        match std::env::var(key) {
+            Ok(v) => if !v.is_empty() { return Some(v) },
+            Err(_) => (),
+        };
+    }
+    None
+}
+
+fn choose_default_server(query: &str) -> String {
+    if query.ends_with("-ARIN") {
+        return String::from(ANICHOST);
+    }
+    if query.ends_with("-NICAT") {
+        return format!("at{QNICHOST_TAIL}");
+    }
+    if query.ends_with("-NORID") {
+        return format!("no{QNICHOST_TAIL}");
+    }
+    if query.ends_with("-RIPE") {
+        return String::from(RNICHOST);
+    }
+    if query.ends_with(".ac.uk") {
+        return format!("ac.uk{QNICHOST_TAIL}");
+    }
+    if query.ends_with(".gov.uk") {
+        return format!("ac.uk{QNICHOST_TAIL}");
+    }
+    String::from(IANAHOST)
+}
+
+struct WhoisFlags {
+    recurse: bool,
+    quick: bool,
+    spam_me: bool,
 }
 
 fn main() {
@@ -230,48 +280,35 @@ fn main() {
     let host = match host {
         Some(v) => Some(v),
         None => {
-            if args.country.is_none() {
-                let env_whois_server = match std::env::var("WHOIS_SERVER") {
-                    Ok(v) => if v.is_empty() { None } else { Some(v) },
-                    Err(_) => None,
-                };
-                match env_whois_server {
-                    Some(v) => Some(v),
-                    None => match std::env::var("RA_SERVER") {
-                        Ok(v) => if v.is_empty() { None } else { Some(v) },
-                        Err(_) => None,
-                    },
-                }
-            } else {
-                None
+            match &args.country {
+                Some(country) => Some(format!("{country}{QNICHOST_TAIL}")),
+                None => resolve_env_var(&["WHOIS_SERVER", "RA_SERVER"]),
             }
         }
     };
     // If no host or country is specified, rely on referrals from IANA.
-    let recurse = args.recurse || !args.quick && host.is_none() && args.country.is_none();
+    let flags = WhoisFlags {
+        recurse: args.recurse || !args.quick && host.is_none() && args.country.is_none(),
+        quick: args.quick,
+        spam_me: args.spam_me
+    };
     let port = match &args.port {
         Some(v) => v.clone(),
         None => String::from("whois"),
     };
-    match host {
-        Some(host) => {
-            for name in args.names {
-                if args.country.is_none() {
-                    match whois(
-                        name.as_str(),
-                        host.as_str(),
-                        port.as_str(),
-                        recurse,
-                        args.quick,
-                        args.spam_me,
-                    ) {
-                            Ok(_) => println!("ok"),
-                            Err(err) => println!("ERROR: {err}"),
-                        }
-                }
+    for name in args.names {
+        let host = host.clone().unwrap_or_else(|| choose_default_server(name.as_str()));
+        if args.country.is_none() {
+            match whois(
+                name.as_str(),
+                host.as_str(),
+                port.as_str(),
+                &flags,
+            ) {
+                Ok(_) => (),
+                Err(err) => println!("ERROR: {err}"),
             }
         }
-        None => panic!("no host"),
     }
 }
 
