@@ -188,6 +188,15 @@ fn build_query(hostname: &str, query: &str, spam_me: bool) -> String {
     format!("{query}\r\n")
 }
 
+const REFERRAL_PREFIXES: [&'static str; 6] = [
+    "whois:",
+    "Whois Server:",
+    "Registar WHOIS Server:",
+    "ReferralServer:  whois://",
+    "ReferralServer:  rwhois://",
+    "descr:          region. Please query",
+];
+
 // TODO: put flags into a struct
 fn whois(query: &str, hostname: &str, service: &str, flags: &WhoisFlags) -> Result<()> {
     let ai_canonname = 0x02;
@@ -210,6 +219,7 @@ fn whois(query: &str, hostname: &str, service: &str, flags: &WhoisFlags) -> Resu
     if !flags.spam_me && (hostname == ANICHOST || hostname == RNICHOST) {
         comment = 2;
     }
+    let mut recurse_hosts = Vec::<String>::new();
     for line in buf_reader.lines() {
         let line = match line {
             Ok(v) => v,
@@ -228,7 +238,16 @@ fn whois(query: &str, hostname: &str, service: &str, flags: &WhoisFlags) -> Resu
             }
         }
         println!("{line}");
+        if flags.recurse {
+            let line = line.trim();
+            for prefix in REFERRAL_PREFIXES {
+                if let Some(server) = line.strip_prefix(prefix) {
+                    recurse_hosts.push(String::from(server.trim()));
+                }
+            }
+        }
     }
+    println!("recurse: {:?}", recurse_hosts);
     Ok(())
 }
 
