@@ -191,7 +191,7 @@ fn build_query(hostname: &str, query: &str, spam_me: bool) -> String {
 const REFERRAL_PREFIXES: [&'static str; 6] = [
     "whois:",
     "Whois Server:",
-    "Registar WHOIS Server:",
+    "Registrar WHOIS Server:",
     "ReferralServer:  whois://",
     "ReferralServer:  rwhois://",
     "descr:          region. Please query",
@@ -210,7 +210,7 @@ fn whois(query: &str, hostname: &str, service: &str, visited_hosts: &mut HashMap
         Err(err) => panic!(">> {:?}", err),
     };
     let mut connection = connect_first(ai_iter)?;
-    let query = build_query(query, hostname, flags.spam_me);
+    let query = build_query(hostname, query, flags.spam_me);
     connection.set_write_timeout(Some(WRITE_TIMEOUT))?;
     connection.write(query.as_bytes())?;
     connection.flush()?;
