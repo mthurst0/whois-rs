@@ -1,7 +1,7 @@
 use std::{
     io::{BufRead, BufReader, Write},
     net::TcpStream,
-    time::Duration,
+    time::Duration, collections::HashMap,
 };
 
 use anyhow::{anyhow, Result};
@@ -198,7 +198,7 @@ const REFERRAL_PREFIXES: [&'static str; 6] = [
 ];
 
 // TODO: put flags into a struct
-fn whois(query: &str, hostname: &str, service: &str, flags: &WhoisFlags) -> Result<()> {
+fn whois(query: &str, hostname: &str, service: &str, visited_hosts: &mut HashMap<String, bool>, flags: &WhoisFlags) -> Result<()> {
     let ai_canonname = 0x02;
     let hints = AddrInfoHints {
         socktype: SOCKTYPE_TCP,
@@ -219,7 +219,7 @@ fn whois(query: &str, hostname: &str, service: &str, flags: &WhoisFlags) -> Resu
     if !flags.spam_me && (hostname == ANICHOST || hostname == RNICHOST) {
         comment = 2;
     }
-    let mut recurse_hosts = Vec::<String>::new();
+    let mut recurse_host: Option<String> = None;
     for line in buf_reader.lines() {
         let line = match line {
             Ok(v) => v,
@@ -238,16 +238,24 @@ fn whois(query: &str, hostname: &str, service: &str, flags: &WhoisFlags) -> Resu
             }
         }
         println!("{line}");
-        if flags.recurse {
+        if flags.recurse && recurse_host.is_none() {
             let line = line.trim();
             for prefix in REFERRAL_PREFIXES {
                 if let Some(server) = line.strip_prefix(prefix) {
-                    recurse_hosts.push(String::from(server.trim()));
+                    recurse_host = Some(String::from(server.trim()));
                 }
             }
         }
     }
-    println!("recurse: {:?}", recurse_hosts);
+    match recurse_host {
+        Some(ref v) => {
+            if !visited_hosts.contains_key(v)  {
+                visited_hosts.insert(v.to_string(), true);
+                whois(&query, v, service, visited_hosts, flags)?;
+            }
+        },
+        None => (),
+    }
     Ok(())
 }
 
@@ -318,10 +326,12 @@ fn main() {
     for name in args.names {
         let host = host.clone().unwrap_or_else(|| choose_default_server(name.as_str()));
         if args.country.is_none() {
+            let mut visited_hosts = HashMap::<String, bool>::new();
             match whois(
                 name.as_str(),
                 host.as_str(),
                 port.as_str(),
+                &mut visited_hosts,
                 &flags,
             ) {
                 Ok(_) => (),
