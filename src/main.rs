@@ -1,7 +1,8 @@
 use std::{
+    collections::HashMap,
     io::{BufRead, BufReader, Write},
     net::TcpStream,
-    time::Duration, collections::HashMap,
+    time::Duration,
 };
 
 use anyhow::{anyhow, Result};
@@ -198,7 +199,13 @@ const REFERRAL_PREFIXES: [&'static str; 6] = [
 ];
 
 // TODO: put flags into a struct
-fn whois(query: &str, hostname: &str, service: &str, visited_hosts: &mut HashMap<String, bool>, flags: &WhoisFlags) -> Result<()> {
+fn whois(
+    query: &str,
+    hostname: &str,
+    service: &str,
+    visited_hosts: &mut HashMap<String, bool>,
+    flags: &WhoisFlags,
+) -> Result<()> {
     let ai_canonname = 0x02;
     let hints = AddrInfoHints {
         socktype: SOCKTYPE_TCP,
@@ -232,7 +239,7 @@ fn whois(query: &str, hostname: &str, service: &str, visited_hosts: &mut HashMap
             break;
         } else if comment == 2 {
             if line.is_empty() || line.starts_with(|c: char| c == '#' || c == '%' || c == '\r') {
-                continue
+                continue;
             } else {
                 comment = 1;
             }
@@ -249,11 +256,11 @@ fn whois(query: &str, hostname: &str, service: &str, visited_hosts: &mut HashMap
     }
     match recurse_host {
         Some(ref v) => {
-            if !visited_hosts.contains_key(v)  {
+            if !visited_hosts.contains_key(v) {
                 visited_hosts.insert(v.to_string(), true);
                 whois(&query, v, service, visited_hosts, flags)?;
             }
-        },
+        }
         None => (),
     }
     Ok(())
@@ -262,7 +269,11 @@ fn whois(query: &str, hostname: &str, service: &str, visited_hosts: &mut HashMap
 fn resolve_env_var(keys: &[&str]) -> Option<String> {
     for key in keys {
         match std::env::var(key) {
-            Ok(v) => if !v.is_empty() { return Some(v) },
+            Ok(v) => {
+                if !v.is_empty() {
+                    return Some(v);
+                }
+            }
             Err(_) => (),
         };
     }
@@ -306,25 +317,25 @@ fn main() {
     };
     let host = match host {
         Some(v) => Some(v),
-        None => {
-            match &args.country {
-                Some(country) => Some(format!("{country}{QNICHOST_TAIL}")),
-                None => resolve_env_var(&["WHOIS_SERVER", "RA_SERVER"]),
-            }
-        }
+        None => match &args.country {
+            Some(country) => Some(format!("{country}{QNICHOST_TAIL}")),
+            None => resolve_env_var(&["WHOIS_SERVER", "RA_SERVER"]),
+        },
     };
     // If no host or country is specified, rely on referrals from IANA.
     let flags = WhoisFlags {
         recurse: args.recurse || !args.quick && host.is_none() && args.country.is_none(),
         quick: args.quick,
-        spam_me: args.spam_me
+        spam_me: args.spam_me,
     };
     let port = match &args.port {
         Some(v) => v.clone(),
         None => String::from("whois"),
     };
     for name in args.names {
-        let host = host.clone().unwrap_or_else(|| choose_default_server(name.as_str()));
+        let host = host
+            .clone()
+            .unwrap_or_else(|| choose_default_server(name.as_str()));
         if args.country.is_none() {
             let mut visited_hosts = HashMap::<String, bool>::new();
             match whois(
